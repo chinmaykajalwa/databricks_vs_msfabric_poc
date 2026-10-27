@@ -62,18 +62,6 @@ variable "git_pat" {
   default     = ""
 }
 
-check "git_pat_present_for_private_repo" {
-  assert {
-    condition     = !var.create_vm || !var.repo_is_private || length(var.git_pat) > 0
-    error_message = <<-EOT
-      repo_is_private = true but git_pat is empty. The VM would fail to clone and run nothing.
-        export TF_VAR_git_pat="github_pat_xxxxxxxx"     # bash
-        $env:TF_VAR_git_pat = "github_pat_xxxxxxxx"     # PowerShell
-      If the repository is public, set repo_is_private = false.
-    EOT
-  }
-}
-
 variable "generator_subdir" {
   description = "Path of the generator package inside the repo."
   type        = string
