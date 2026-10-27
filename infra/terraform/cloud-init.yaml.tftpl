@@ -1,0 +1,101 @@
+#cloud-config
+# ---------------------------------------------------------------------------
+# P2P control tower generator VM -- first boot
+# ---------------------------------------------------------------------------
+# 1. write config (non-secret) and secrets (0600, root only)
+# 2. install azcopy (uploads with the VM's managed identity)
+# 3. bootstrap.sh: clone repo_ref, then run the REPO's infra/vm/setup.sh
+#
+# Secrets never touch the repo or the image: the Event Hubs connection string
+# goes to /etc/p2p/publisher.env and the PAT to /etc/p2p/git.env, both 0600.
+# NOTE: inside this template, ${...} is Terraform interpolation; the shell
+# scripts below therefore use $VAR (no braces) only.
+
+package_update: true
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+
+write_files:
+  - path: /etc/p2p/setup.conf
+    permissions: "0644"
+    owner: root:root
+    content: |
+      REPO_URL=${repo_url}
+      REPO_REF=${repo_ref}
+      GENERATOR_SUBDIR=${generator_subdir}
+      DATA_PROFILE=${data_profile}
+      RUN_PIPELINE=${run_pipeline}
+      UPLOAD_TO_STORAGE=${upload_to_storage}
+      STORAGE_ACCOUNT=${storage_account}
+      LANDING_CONTAINER=${landing_container}
+      GROUNDTRUTH_CONTAINER=${groundtruth_container}
+      PUBLISHER_AUTOSTART=${publisher_autostart}
+      PUBLISHER_DURATION_MIN=${publisher_duration_min}
+      PUBLISHER_TIME_SCALE=${publisher_time_scale}
+      PUBLISHER_FLUSH_MS=${publisher_flush_ms}
+
+  # Read by publish_live.py --env-file (parsed as KEY=VALUE, never shell-sourced).
+  - path: /etc/p2p/publisher.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      EVENTHUB_BOOTSTRAP=${eventhub_bootstrap}
+      EVENTHUB_CONNECTION_STRING=${eventhub_connection_string}
+
+  - path: /etc/p2p/git.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      GIT_PAT=${git_pat}
+
+  - path: /opt/p2p/bootstrap.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      # Clone (or re-pull) the repo at REPO_REF, then run its setup.sh.
+      # Re-run any time to deploy new commits:  sudo /opt/p2p/bootstrap.sh
+      set -uo pipefail
+      LOG=/var/log/p2p-setup.log
+      exec > >(tee -a "$LOG") 2>&1
+      conf() { sed -n "s/^$1=//p" "$2" | tail -1; }
+      URL=$(conf REPO_URL /etc/p2p/setup.conf)
+      REF=$(conf REPO_REF /etc/p2p/setup.conf)
+      PAT=$(conf GIT_PAT /etc/p2p/git.env)
+      ROOT=/opt/p2p
+      TMP=$ROOT/repo.incoming
+      echo "=== p2p bootstrap $(date -u): $URL @ $REF ==="
+
+      # Clone into a TEMP dir and swap only on success: a failed clone (e.g. a
+      # missing PAT) must never destroy a working checkout (Novelis lesson).
+      rm -rf "$TMP"
+      AUTH_URL="$URL"
+      if [ -n "$PAT" ]; then
+        AUTH_URL=$(echo "$URL" | sed -E "s#https://#https://x-access-token:$PAT@#")
+      fi
+      # GIT_TERMINAL_PROMPT=0: a credential prompt on a headless box becomes an error, not a hang.
+      # Full clone (not --branch) so REPO_REF may be a branch, tag OR commit SHA.
+      if ! GIT_TERMINAL_PROMPT=0 git -c credential.helper= clone --quiet "$AUTH_URL" "$TMP"; then
+        echo "CLONE FAILED for $URL. Private repo? Set TF_VAR_git_pat. Existing checkout left intact." >&2
+        rm -rf "$TMP"; exit 1
+      fi
+      git -C "$TMP" remote set-url origin "$URL"       # scrub the token from .git/config
+      if ! git -C "$TMP" checkout --quiet "$REF"; then
+        echo "CHECKOUT FAILED: ref '$REF' not found. Existing checkout left intact." >&2
+        rm -rf "$TMP"; exit 1
+      fi
+      rm -rf "$ROOT/repo"
+      mv "$TMP" "$ROOT/repo"
+      git -C "$ROOT/repo" rev-parse --short HEAD > "$ROOT/COMMIT"
+      echo "[bootstrap] $REF @ $(cat $ROOT/COMMIT)"
+      exec bash "$ROOT/repo/infra/vm/setup.sh"
+
+runcmd:
+  - mkdir -p /opt/p2p/output /var/log/azcopy
+  - curl -sSL https://aka.ms/downloadazcopy-v10-linux | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/azcopy'
+  - chmod 755 /usr/local/bin/azcopy
+  - /opt/p2p/bootstrap.sh

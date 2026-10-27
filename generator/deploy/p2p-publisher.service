@@ -1,0 +1,23 @@
+# systemd unit for the live publisher (same VM pattern as the Novelis POC).
+# Install: sudo cp deploy/p2p-publisher.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# Start a 60-minute demo run:  sudo systemctl start p2p-publisher
+# Logs (stderr -> journal):     journalctl -u p2p-publisher -f
+[Unit]
+Description=P2P control tower live publisher (Event Hubs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/p2p_controltower
+# The script parses the env file itself (KEY=VALUE); it is never shell-sourced, because the ';'
+# inside an Event Hubs connection string would truncate the secret.
+ExecStart=/opt/p2p_controltower/.venv/bin/python scripts/publish_live.py --env-file /etc/p2p/publisher.env --duration-min 60 --time-scale 1.0
+Restart=on-failure
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

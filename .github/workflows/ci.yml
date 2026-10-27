@@ -1,0 +1,39 @@
+# CI: proves on every push that the generator still builds a valid dataset end to end
+# (all gates + the step-5 dry run) and that the Terraform is well-formed. No Azure access needed.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  generator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r generator/requirements.txt
+      - name: Lite pipeline (steps 1-4 + validation + dry-run gate)
+        run: bash generator/scripts/run_pipeline.sh --profile lite --out /tmp/p2p-out
+      - name: Keep ground truth and samples from this run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lite-ground-truth
+          path: |
+            /tmp/p2p-out/ground_truth
+            /tmp/p2p-out/live_samples
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# DISTINCT from "synthetic-iot" and "synthetic-iot-wide" on purpose: if this
+# lands on the same VM as the Novelis POC, a shared distribution name would
+# let one `pip install -e .` silently shadow the other.
+name = "synthetic-p2p-controltower"
+version = "0.1.0"
+description = "Plant-to-Provider control tower: synthetic medical-surgical manufacturing + distribution data for a Databricks vs Fabric PoC"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    # Live publisher (step 5). Upper-bounded: kafka-python 3.x logs every
+    # successful produce at WARNING (858 MB of journal in 18 h on the last VM).
+    'kafka-python-ng>=2.2,<3.0 ; python_version >= "3.12"',
+    'kafka-python>=2.0,<3.0 ; python_version < "3.12"',
+]
+
+[tool.setuptools]
+packages = ["p2p_gen"]

@@ -1,0 +1,42 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Defaults shown for visibility.
+
+name_prefix         = "p2ppoc"
+location            = "eastus" # same region as the Databricks workspace and Fabric capacity
+resource_group_name = "p2p-controltower-poc-rg"
+
+# --- Event Hubs ---
+eventhub_capacity                 = 1
+eventhub_auto_inflate_enabled     = true
+eventhub_maximum_throughput_units = 2
+eventhub_partition_count          = 4 # cannot be changed after creation
+eventhub_message_retention_days   = 7
+consumer_groups                   = ["databricks", "fabric"]
+public_network_access_enabled     = true
+
+# --- Storage landing zone ---
+create_storage        = true
+landing_container     = "landing"
+groundtruth_container = "groundtruth" # never grant the platforms access
+
+# --- VM ---
+create_vm       = true
+vm_size         = "Standard_B2ms"
+ssh_source_cidr = "203.0.113.7/32" # REQUIRED: your IP (curl -s https://api.ipify.org)
+
+# --- Repo the VM clones ---
+repo_url         = "https://github.com/<org>/<repo>.git" # REQUIRED
+repo_ref         = "main"                                 # pin a tag/SHA for demo day
+repo_is_private  = true
+generator_subdir = "generator"
+# git_pat: NEVER here. export TF_VAR_git_pat="github_pat_xxx"
+
+# --- First boot ---
+data_profile         = "lite"
+run_pipeline_on_boot = true
+upload_to_storage    = true
+
+# --- Live demo publisher ---
+publisher_autostart    = false # start it when the audience is watching
+publisher_duration_min = 60
+publisher_time_scale   = 1.0 # 6.0 = full story in 10 minutes for rehearsal
+publisher_flush_ms     = 5000

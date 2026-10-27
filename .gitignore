@@ -1,0 +1,24 @@
+# ---- Generated data (rebuilt deterministically on the VM / in CI; never commit) ----
+generator/output/*
+!generator/output/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- Secrets ----
+.env
+*.env
+!*.env.example
+generator_id_rsa*
+
+# ---- Terraform: state holds SAS connection strings and the VM private key in plaintext ----
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.auto.tfvars
+crash.log
+crash.*.log
+*.tfplan
