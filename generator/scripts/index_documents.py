@@ -66,7 +66,6 @@ def index_definition(name: str):
     from azure.search.documents.indexes.models import (SearchableField, SearchFieldDataType, SearchIndex,
                                                        SemanticConfiguration, SemanticField,
                                                        SemanticPrioritizedFields, SemanticSearch, SimpleField)
-    coll = SearchFieldDataType.Collection(SearchFieldDataType.String)
     fields = [
         SimpleField(name="id", type=SearchFieldDataType.String, key=True),
         SimpleField(name="doc_id", type=SearchFieldDataType.String, filterable=True, facetable=True),
@@ -76,8 +75,10 @@ def index_definition(name: str):
         SearchableField(name="content", type=SearchFieldDataType.String, analyzer_name="en.microsoft"),
         SimpleField(name="revision", type=SearchFieldDataType.String, filterable=True),
         SimpleField(name="effective_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
-        SearchableField(name="asset_ids", type=coll, filterable=True, facetable=True),
-        SearchableField(name="related_ids", type=coll, filterable=True),
+        # collection=True, not type=Collection(...): SearchableField ignores `type` and would create a single
+        # Edm.String, which then rejects the lists we upload ("unexpected 'StartArray' node").
+        SearchableField(name="asset_ids", collection=True, filterable=True, facetable=True),
+        SearchableField(name="related_ids", collection=True, filterable=True),
         SimpleField(name="path", type=SearchFieldDataType.String),
     ]
     semantic = SemanticSearch(configurations=[SemanticConfiguration(
@@ -128,7 +129,13 @@ def main(argv=None) -> int:
             print(f"[index] uploaded {ok}/{len(docs)} chunks to {a.endpoint}/indexes/{a.index}")
             return 0 if ok == len(docs) else 1
         except Exception as exc:  # noqa: BLE001
-            print(f"[index] attempt {attempt} failed: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+            status = getattr(exc, "status_code", None)
+            print(f"[index] attempt {attempt} failed (HTTP {status}): {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+            # Only waiting can fix 401/403 (RBAC still propagating on a new VM) and 429/5xx. Anything else,
+            # e.g. 400 for a schema mismatch, will fail identically every time: stop now.
+            if status is not None and status not in (401, 403, 429) and status < 500:
+                print("[index] not retrying: this error will not heal by waiting", file=sys.stderr)
+                return 1
             if attempt < a.retries:
                 time.sleep(60)
     return 1
