@@ -28,6 +28,9 @@ scorecard is the platform's, not the data's.
 | `generator/scripts/run_pipeline.sh` | Runs steps 1-4, on-disk validation and the step-5 dry-run gate; fails fast. |
 | `infra/terraform/` | Event Hubs (4 topics, 2 consumer groups), ADLS Gen2 landing zone, generator VM. Runbook in [`infra/terraform/README.md`](infra/terraform/README.md). |
 | `infra/vm/` | `setup.sh` (install, pipeline, upload, publisher unit) and `upload.sh` (managed-identity upload). Versioned with the code; the VM runs them from its checkout. |
+| `platforms/databricks/` | Notebooks: batch ingest + reconciliation, Event Hubs streaming (bronze/silver), alert views, hero analysis. |
+| `platforms/fabric/` | Lakehouse notebooks (batch + hero) and Eventhouse KQL (update policy, materialized views, alerts). |
+| `platforms/shared/` | Agentic AI on both platforms: curated agent-ready tables (one definition, tested), identical instructions, example queries, scoring against ground truth. |
 | `.github/workflows/ci.yml` | On every push: full lite pipeline with all gates + dry run; `terraform fmt` / `validate`. |
 
 ## Quick start

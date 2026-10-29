@@ -5,6 +5,7 @@
 #   1. venv + install the generator
 #   2. run the data pipeline (steps 1-4 + validation + dry-run gate)
 #   3. upload batch data to ADLS Gen2 (landing) and ground truth (separate container)
+#   3b. index the documents into Azure AI Search (if configured)
 #   4. register the live publisher as a systemd unit (started manually for the demo)
 #
 # Settings come from /etc/p2p/setup.conf (non-secret, written by cloud-init).
@@ -36,7 +37,9 @@ DUR=$(conf PUBLISHER_DURATION_MIN)
 TS=$(conf PUBLISHER_TIME_SCALE)
 FLUSH=$(conf PUBLISHER_FLUSH_MS)
 
-S_INSTALL=skipped; S_PIPELINE=skipped; S_UPLOAD=skipped; S_UNIT=skipped
+SEARCH_ENDPOINT=$(conf SEARCH_ENDPOINT)
+SEARCH_INDEX=$(conf SEARCH_INDEX); SEARCH_INDEX=${SEARCH_INDEX:-p2p-documents}
+S_INSTALL=skipped; S_PIPELINE=skipped; S_UPLOAD=skipped; S_SEARCH=skipped; S_UNIT=skipped
 echo "=== p2p setup starting $(date -u) profile=$PROFILE commit=$(cat $ROOT/COMMIT 2>/dev/null) ==="
 
 # ---- 1. install -----------------------------------------------------------
@@ -62,6 +65,14 @@ if [ "$UPLOAD" = "true" ] && [ "$S_PIPELINE" = "ok" ]; then
   ( set -e; bash "$REPO/infra/vm/upload.sh" all ) && S_UPLOAD=ok || S_UPLOAD=FAILED
 fi
 echo "[upload] status: $S_UPLOAD"
+# ---- 3b. search index (documents for the agents; managed identity, retries for RBAC propagation) ----
+if [ -n "$SEARCH_ENDPOINT" ] && [ "$S_PIPELINE" = "ok" ]; then
+  ( set -e
+    cd "$GEN"
+    "$VENV/bin/python" scripts/index_documents.py --out "$OUT" --endpoint "$SEARCH_ENDPOINT" --index "$SEARCH_INDEX"
+  ) && S_SEARCH=ok || S_SEARCH=FAILED
+fi
+echo "[search] status: $S_SEARCH"
 
 # ---- 4. publisher unit ----------------------------------------------------
 # Restart=no on purpose: a restart would replay the 60-minute story from minute
@@ -98,10 +109,10 @@ echo "[unit] status: $S_UNIT"
 
 echo
 echo "=================================================================="
-echo " SETUP SUMMARY  install=$S_INSTALL pipeline=$S_PIPELINE upload=$S_UPLOAD unit=$S_UNIT profile=$PROFILE"
+echo " SETUP SUMMARY  install=$S_INSTALL pipeline=$S_PIPELINE upload=$S_UPLOAD search=$S_SEARCH unit=$S_UNIT profile=$PROFILE"
 echo "=================================================================="
 echo "=== p2p setup complete $(date -u) ==="
-for s in "$S_INSTALL" "$S_PIPELINE" "$S_UPLOAD" "$S_UNIT"; do
+for s in "$S_INSTALL" "$S_PIPELINE" "$S_UPLOAD" "$S_SEARCH" "$S_UNIT"; do
   [ "$s" = "FAILED" ] && { echo "ERROR: at least one stage failed; see above." >&2; exit 1; }
 done
 exit 0

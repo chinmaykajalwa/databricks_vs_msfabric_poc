@@ -144,6 +144,8 @@ resource "azurerm_linux_virtual_machine" "generator" {
     storage_account       = var.create_storage ? azurerm_storage_account.landing[0].name : ""
     landing_container     = var.landing_container
     groundtruth_container = var.groundtruth_container
+    search_endpoint       = var.create_search ? "https://${azurerm_search_service.docs[0].name}.search.windows.net" : ""
+    search_index          = var.search_index_name
 
     publisher_autostart    = var.publisher_autostart ? "true" : "false"
     publisher_duration_min = var.publisher_duration_min

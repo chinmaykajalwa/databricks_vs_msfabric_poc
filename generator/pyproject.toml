@@ -14,6 +14,8 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
     "pyarrow>=14.0",
+    "azure-search-documents>=11.6",
+    "azure-identity>=1.17",
     # Live publisher (step 5). Upper-bounded: kafka-python 3.x logs every
     # successful produce at WARNING (858 MB of journal in 18 h on the last VM).
     'kafka-python-ng>=2.2,<3.0 ; python_version >= "3.12"',

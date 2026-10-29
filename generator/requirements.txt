@@ -2,6 +2,9 @@ numpy>=1.24
 pandas>=2.0
 pyarrow>=14.0
 
+# Document indexing into Azure AI Search (step B; used on the VM, harmless elsewhere)
+azure-search-documents>=11.6
+azure-identity>=1.17
 # Live publisher only (step 5); not needed for file generation or --dry-run.
 # <3.0: kafka-python 3.x logs every successful produce at WARNING.
 # kafka-python 2.0.2 does not import on Python 3.12+; the -ng fork does.
