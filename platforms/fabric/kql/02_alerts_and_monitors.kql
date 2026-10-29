@@ -1,0 +1,70 @@
+// ===========================================================================
+// P2P control tower -- live alerts and data-quality monitors (KQL)
+// Each query mirrors a documented rule and has a Databricks SQL twin
+// (platforms/databricks/notebooks/03_gold_alerts_and_hero.py). Pin them to a
+// Real-Time Dashboard; attach Activator alerts to the ones marked [ALERT].
+// ===========================================================================
+
+// [ALERT] Hero: RH probe failure (MAN-STZ-EX A-104 / A-107) -- fires at story minute 15
+TelemetryDedup
+| where event_time > ago(3h)
+| lookup kind = inner (TagDim | where signal == "chamber_rh_pct" | project tag_id, asset_id) on tag_id
+| where value > 80 or quality != "G"
+| project event_time, asset_id, value, quality
+| order by event_time desc
+
+// [ALERT] Sorter bearing, ISO zone D (SOP-DC-501) -- story minute 5
+TelemetryDedup
+| where event_time > ago(3h)
+| lookup kind = inner (TagDim | where signal == "vibration_mm_s" and asset_type == "crossbelt_sorter" | project tag_id, asset_id, site_id) on tag_id
+| where value > 7.1
+| summarize first_alarm = min(event_time), peak = max(value) by asset_id, site_id
+
+// [ALERT] Reefer: above 20 C for MORE than 15 minutes (SOP-LOG-601) -- story minute 30
+TelemetryMinute
+| where minute > ago(6h)
+| lookup kind = inner (TagDim | where signal == "reefer_temp_c" | project tag_id, asset_id) on tag_id
+| order by asset_id asc, minute asc
+| extend above = min_v > 20
+| extend run = row_cumsum(iff(above, 0, 1), asset_id != prev(asset_id))
+| where above
+| summarize above_since = min(minute), last_minute = max(minute), minutes_above = count() by asset_id, run
+| where minutes_above > 15
+
+// [ALERT] Site silence (SOP-DC-510) -- the outage DC goes quiet at story minute 45
+Telemetry
+| where ingest_time > ago(6h)
+| summarize last_seen = max(ingest_time) by site, topic
+| extend silent_seconds = datetime_diff('second', now(), last_seen)
+| where silent_seconds > 120
+
+// Data quality: clock-skewed gateway (records claim to be from the future)
+Telemetry
+| where ingest_time > ago(3h)
+| summarize median_lag_ms = percentile(arrival_lag_ms, 50), n = count() by site, topic
+| where median_lag_ms < -30000
+
+// Data quality: late arrivals (event time far behind ingestion)
+Telemetry
+| where ingest_time > ago(3h)
+| summarize late = countif(arrival_lag_ms > 60000), total = count() by topic
+| extend late_pct = round(100.0 * late / total, 3)
+
+// Data quality: duplicates removed by TelemetryDedup
+Telemetry | where ingest_time > ago(3h) | summarize raw = count()
+| extend dedup = toscalar(TelemetryDedup | where ingest_time > ago(3h) | count)
+| extend duplicates = raw - dedup
+
+// Schema evolution: firmware 4.3 tag IDs not in TagDim yet (story minute 20).
+// Append tag_dim_fw43.csv to TagDim and this list empties at once: lookups resolve at query time.
+Telemetry
+| where ingest_time > ago(3h)
+| join kind = leftanti TagDim on tag_id
+| summarize first_seen = min(event_time), n = count() by tag_id, site, fw
+
+// Hero chamber live trace: reported RH vs steam (render as a time chart)
+TelemetryMinute
+| where minute > ago(3h)
+| lookup kind = inner (TagDim | where asset_id == "STZ-P01-01" and signal in ("chamber_rh_pct", "steam_flow_kg_h") | project tag_id, signal) on tag_id
+| project minute, signal, mean_v
+| render timechart

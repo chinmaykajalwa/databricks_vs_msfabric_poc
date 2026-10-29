@@ -10,6 +10,8 @@ Creates, in one resource group:
 | ADLS Gen2 account, containers `landing` + `groundtruth` | Batch data for both platforms; answer keys kept separate |
 | Linux VM (Ubuntu 24.04, B2ms) with managed identity | Clones the repo, generates and uploads data, runs the live publisher |
 | Role assignment | VM identity -> Storage Blob Data Contributor on the account |
+| Azure AI Search (basic, semantic ranker free plan) | Index `p2p-documents` of SOPs, manuals, deviation reports, supplier notices for the agents |
+| Role assignments | VM identity -> Search Service Contributor + Search Index Data Contributor (builds the index without keys) |
 
 ## Prerequisites
 
@@ -25,7 +27,7 @@ cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars      # set repo_url, ssh_source_cidr, location
 export TF_VAR_git_pat="github_pat_xxxxxxxx"       # PowerShell: $env:TF_VAR_git_pat = "..."
 terraform init
-terraform plan                                    # fails fast if the PAT is missing for a private repo
+terraform plan                                    # preconditions fail the plan if the PAT is missing or repo_url is a placeholder
 terraform apply
 terraform output -raw ssh_private_key > ./generator_id_rsa && chmod 600 ./generator_id_rsa
 ```
@@ -40,8 +42,10 @@ az vm run-command invoke -g <rg> -n <vm> --command-id RunShellScript \
   --scripts "grep -E 'SETUP SUMMARY|status:|FAILED|PIPELINE OK' /var/log/p2p-setup.log" \
   --query "value[0].message" -o tsv
 ```
-Expect `SETUP SUMMARY install=ok pipeline=ok upload=ok unit=ok`. If `upload=FAILED`,
-RBAC was still propagating: SSH in and run `sudo bash /opt/p2p/repo/infra/vm/upload.sh all`.
+Expect `SETUP SUMMARY install=ok pipeline=ok upload=ok search=ok unit=ok`. If `upload=FAILED` or `search=FAILED`,
+RBAC was still propagating (both stages retry for ~10 minutes): re-run `sudo /opt/p2p/bootstrap.sh` in the
+background (`nohup ... &`), or just the failed stage: `upload.sh all`, or
+`cd /opt/p2p/repo/generator && /opt/p2p/venv/bin/python scripts/index_documents.py --out /opt/p2p/output/lite --endpoint <search endpoint>`.
 Never run `bootstrap.sh` synchronously through Run Command (it takes minutes and wedges
 the extension); use SSH or `nohup ... &` and poll.
 
@@ -76,6 +80,15 @@ cat /opt/p2p/COMMIT            # what is deployed
 Changing Terraform variables that feed cloud-init rebuilds the VM (custom_data is
 ForceNew), which is the correct behaviour since cloud-init only runs on first boot.
 Pin `repo_ref` to a tag or SHA for the demo, so the VM runs exactly what CI tested.
+## Documents in Azure AI Search
+Adding search to an existing deployment changes cloud-init, so `terraform apply` **rebuilds the VM** (Event Hubs,
+storage and your platform setups are untouched; the deterministic generator recreates identical data). Afterwards:
+```bash
+terraform output search_endpoint
+terraform output -raw search_query_key      # read-only key for the Fabric data agent
+```
+Portal -> the search service -> Indexes -> `p2p-documents` should show ~350 documents (one per document section).
+Search for `steam consumption` to see MAN-STZ-EX section 4.3 come back first.
 
 ## Connecting the platforms
 

@@ -1,0 +1,54 @@
+// ===========================================================================
+// P2P control tower -- Fabric Eventhouse (KQL database) setup
+// Run each command block separately in a KQL queryset (one .command per run).
+//
+// Flow:  Eventstream (4 Event Hubs sources, consumer group "fabric")
+//          -> RawEnvelope   (one row per message, JSON mapping)
+//          -> update policy ExpandEnvelope() -> Telemetry (one row per reading)
+//          -> materialized views: TelemetryDedup (duplicates), TelemetryMinute (1-min aggregates)
+// ===========================================================================
+
+// ---- 1. Landing table for the Eventstream destination -----------------------
+.create-merge table RawEnvelope (src:string, topic:string, site:string, sent_ms:long, n:int, records:dynamic)
+
+.create-or-alter table RawEnvelope ingestion json mapping 'RawEnvelopeMapping'
+'[{"column":"src","path":"$.src"},{"column":"topic","path":"$.topic"},{"column":"site","path":"$.site"},{"column":"sent_ms","path":"$.sent_ms"},{"column":"n","path":"$.n"},{"column":"records","path":"$.records"}]'
+
+// Not required with streaming ingestion (the update policy stamps ingest_time with now()); harmless.
+.alter table RawEnvelope policy ingestiontime true
+
+.alter-merge table RawEnvelope policy retention softdelete = 7d
+
+// ---- 2. One row per reading -------------------------------------------------
+.create-merge table Telemetry (topic:string, site:string, event_time:datetime, tag_id:int, value:real, quality:string, fw:string, sent_time:datetime, ingest_time:datetime, arrival_lag_ms:long)
+
+.create-or-alter function with (folder = "p2p", docstring = "Explode envelopes into one row per reading") ExpandEnvelope() {
+    RawEnvelope
+    | extend ingest_time = now()        // = ingestion time inside an update policy; ingestion_time() is not allowed with streaming ingestion
+    | mv-expand r = records
+    | extend event_time = unixtime_milliseconds_todatetime(tolong(r.t))
+    | project topic, site, event_time,
+              tag_id = toint(r.g), value = toreal(r.v), quality = tostring(r.q),
+              fw = tostring(r.fw),                       // empty before the firmware 4.3 upgrade
+              sent_time = unixtime_milliseconds_todatetime(sent_ms), ingest_time,
+              arrival_lag_ms = datetime_diff('millisecond', ingest_time, event_time)
+}
+
+.alter table Telemetry policy update @'[{"IsEnabled": true, "Source": "RawEnvelope", "Query": "ExpandEnvelope()", "IsTransactional": true, "PropagateIngestionProperties": false}]'
+
+// ---- 3. Reference dimension (load tag_dim.csv into it, see README) -------------
+.create-merge table TagDim (tag_id:int, tag_name:string, asset_id:string, asset_kind:string, asset_type:string, site_id:string, signal:string, unit:string, interval_ms:long, expected_hz:real, sampling:string, min_valid:real, max_valid:real, max_rate_of_change:real, frozen_threshold:long, criticality:string, topic:string)
+
+// ---- 4. Duplicates (~0.1%, at-least-once delivery): keep one row per (tag, event time) ----
+.create materialized-view with (backfill = true) TelemetryDedup on table Telemetry {
+    Telemetry
+    | summarize arg_max(ingest_time, *) by tag_id, event_time
+}
+
+// ---- 5. 1-minute aggregates for dashboards and the sustained-threshold rules ----
+.create materialized-view with (backfill = true) TelemetryMinute on table Telemetry {
+    Telemetry
+    | summarize n = count(), mean_v = avg(value), min_v = min(value), max_v = max(value),
+                n_not_good = countif(quality != "G")
+      by tag_id, minute = bin(event_time, 1m)
+}

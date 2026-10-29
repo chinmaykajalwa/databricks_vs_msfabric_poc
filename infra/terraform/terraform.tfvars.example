@@ -18,6 +18,11 @@ create_storage        = true
 landing_container     = "landing"
 groundtruth_container = "groundtruth" # never grant the platforms access
 
+# --- Azure AI Search (documents for the agents) ---
+create_search       = true
+search_sku          = "basic"
+search_semantic_sku = "free"
+search_index_name   = "p2p-documents"
 # --- VM ---
 create_vm       = true
 vm_size         = "Standard_B2ms"

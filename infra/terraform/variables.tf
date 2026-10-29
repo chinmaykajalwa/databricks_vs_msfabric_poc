@@ -120,3 +120,24 @@ variable "storage_replication" {
   type        = string
   default     = "LRS"
 }
+# ---- Azure AI Search (documents for the agents) -----------------------------
+variable "create_search" {
+  description = "Create the Azure AI Search service the VM indexes the documents into (Fabric data agent's unstructured source)."
+  type        = bool
+  default     = true
+}
+variable "search_sku" {
+  description = "basic is enough for ~350 chunks and supports the semantic ranker. 'free' is limited to one per subscription and has no semantic ranker."
+  type        = string
+  default     = "basic"
+}
+variable "search_semantic_sku" {
+  description = "Semantic ranker plan: free (limited monthly queries, fine for a PoC), standard, or \"\" to disable. Not available on the free search SKU."
+  type        = string
+  default     = "free"
+}
+variable "search_index_name" {
+  description = "Index the VM creates (recreated on every setup run)."
+  type        = string
+  default     = "p2p-documents"
+}
