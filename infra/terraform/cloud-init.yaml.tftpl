@@ -8,8 +8,8 @@
 #
 # Secrets never touch the repo or the image: the Event Hubs connection string
 # goes to /etc/p2p/publisher.env and the PAT to /etc/p2p/git.env, both 0600.
-# NOTE: inside this template, ${...} is Terraform interpolation; the shell
-# scripts below therefore use $VAR (no braces) only.
+# NOTE: Terraform interprets interpolation sequences in this template; the
+# shell scripts below therefore use $VAR (no braces) only.
 
 package_update: true
 packages:
