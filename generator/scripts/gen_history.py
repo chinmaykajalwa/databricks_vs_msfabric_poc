@@ -143,7 +143,7 @@ def main(argv=None) -> int:
     log = log.drop(columns=["start_ms", "end_ms", "alarm_ms"])
     gt = out / "ground_truth"
     gt.mkdir(parents=True, exist_ok=True)
-    log.to_parquet(gt / "anomaly_log.parquet", index=False)
+    log.to_parquet(gt / "anomaly_log.parquet", index=False, coerce_timestamps="us", allow_truncated_timestamps=True)
     log.to_csv(gt / "anomaly_log.csv", index=False)
 
     S = ctx.STER[ctx.hero]
@@ -240,10 +240,21 @@ def main(argv=None) -> int:
     agg_dir = out / "telemetry" / "agg" / "topic=dc-asset-telemetry"
     vib = pd.concat([pd.read_parquet(p, filters=[("tag_id", "==", tag)]).assign(date=p.parent.name[5:])
                      for p in sorted(agg_dir.glob("date=*/part.parquet"))])
-    dm = vib[vib["n"] > 0].groupby("date")["mean"].mean()
-    add("history: sorter vibration trend visible before the live alarm, never alarmed in history",
-        dm.iloc[-1] - dm.iloc[0] > 0.8 and vib["max"].max() < ISO_VIBRATION_ALARM,
-        f"first day {dm.iloc[0]:.2f} -> last day {dm.iloc[-1]:.2f}, max {vib['max'].max():.2f}")
+    # Physics-relative check: the slow wear stage adds 1.5 * x^1.5 mm/s (x = elapsed share of the degradation
+    # window) to RUNNING minutes only. How much of it is VISIBLE depends on the calendar (weekend downtime just
+    # before live start hides most of it), so compare the observed week-over-week lift on running minutes with
+    # the lift the physics predicts for exactly those minutes, instead of a fixed threshold.
+    run = vib[(vib["n"] > 0) & (vib["mean"] > 1.0)].copy()
+    end = pd.Timestamp(ctx.live, unit="ms", tz="UTC")
+    t_ms = (run["bucket_ts"] - pd.Timestamp(0, tz="UTC")) / pd.Timedelta(milliseconds=1)
+    run["slow"] = 1.5 * np.clip((t_ms - srt["start_ms"]) / (srt["alarm_ms"] - srt["start_ms"]), 0, None) ** 1.5
+    fin = run[run["bucket_ts"] >= end - pd.Timedelta(days=7)]
+    prev = run[(run["bucket_ts"] >= end - pd.Timedelta(days=14)) & (run["bucket_ts"] < end - pd.Timedelta(days=7))]
+    first, last = prev["mean"].mean(), fin["mean"].mean()
+    expected = fin["slow"].mean() - prev["slow"].mean()
+    add("history: sorter wear trend present as the physics predicts, never alarmed in history",
+        (last - first) >= 0.5 * expected and expected > 0.05 and vib["max"].max() < ISO_VIBRATION_ALARM,
+        f"running-minute lift {last - first:+.2f} mm/s vs {expected:+.2f} predicted; max {vib['max'].max():.2f}")
     sh = tx["shipments"].merge(tx["customer_orders"][["order_id", "customer_id"]]).merge(world["customers"][["customer_id", "lat", "lon"]])
     sh = sh.merge(world["routes"][["route_id", "vehicle_id"]]).sample(60, random_state=1)
     near = 0

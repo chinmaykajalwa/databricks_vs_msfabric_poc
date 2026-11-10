@@ -50,14 +50,17 @@ output "search_endpoint" {
   description = "Azure AI Search endpoint for the Fabric data agent's document source."
   value       = var.create_search ? "https://${azurerm_search_service.docs[0].name}.search.windows.net" : null
 }
+
 output "search_index_name" {
   value = var.create_search ? var.search_index_name : null
 }
+
 output "search_query_key" {
-  description = "READ-ONLY query key for the Fabric data agent connection: terraform output -raw search_query_key"
+  description = "READ-ONLY query key, for scripts and testing. The Fabric data agent does NOT use it (it uses Entra ID; see search_reader_principal_ids)."
   value       = var.create_search ? azurerm_search_service.docs[0].query_keys[0].key : null
   sensitive   = true
 }
+
 output "vm_public_ip" {
   value = var.create_vm ? azurerm_public_ip.generator[0].ip_address : null
 }

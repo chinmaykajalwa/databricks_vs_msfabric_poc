@@ -26,7 +26,10 @@ def write_tables(cfg: P2PConfig, tables: dict[str, pd.DataFrame], domain: str) -
     info = {}
     for name, df in sorted(tables.items()):
         path = out / f"{name}.parquet"
-        pq.write_table(pa.Table.from_pandas(df, preserve_index=False), path, compression="snappy")
+        # Microsecond timestamps: Spark (Databricks and Fabric) cannot read pandas-2 nanosecond
+        # Parquet timestamps. pandas 3 already writes us; this pins it for any pandas version.
+        pq.write_table(pa.Table.from_pandas(df, preserve_index=False), path, compression="snappy",
+                       coerce_timestamps="us", allow_truncated_timestamps=True)
         if cfg.write_csv:
             df.to_csv(out / f"{name}.csv", index=False)
         info[name] = {"rows": len(df), "columns": len(df.columns), "digest": table_digest(df),

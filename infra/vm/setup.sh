@@ -39,6 +39,7 @@ FLUSH=$(conf PUBLISHER_FLUSH_MS)
 
 SEARCH_ENDPOINT=$(conf SEARCH_ENDPOINT)
 SEARCH_INDEX=$(conf SEARCH_INDEX); SEARCH_INDEX=${SEARCH_INDEX:-p2p-documents}
+
 S_INSTALL=skipped; S_PIPELINE=skipped; S_UPLOAD=skipped; S_SEARCH=skipped; S_UNIT=skipped
 echo "=== p2p setup starting $(date -u) profile=$PROFILE commit=$(cat $ROOT/COMMIT 2>/dev/null) ==="
 
@@ -65,6 +66,7 @@ if [ "$UPLOAD" = "true" ] && [ "$S_PIPELINE" = "ok" ]; then
   ( set -e; bash "$REPO/infra/vm/upload.sh" all ) && S_UPLOAD=ok || S_UPLOAD=FAILED
 fi
 echo "[upload] status: $S_UPLOAD"
+
 # ---- 3b. search index (documents for the agents; managed identity, retries for RBAC propagation) ----
 if [ -n "$SEARCH_ENDPOINT" ] && [ "$S_PIPELINE" = "ok" ]; then
   ( set -e

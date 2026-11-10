@@ -551,7 +551,7 @@ are unchanged. Please update your receiving checklist.
 
         for sid in sorted(self.ster.index):
             # RH probe: quarterly before the second precedent, monthly after (SOP-STR-204 rev C)
-            last_pass = drift_start - pd.Timedelta(hours=6)
+            last_pass = drift_start - pd.Timedelta(hours=self.cfg.hero_last_pass_hours_before_drift)
             pts = []
             t = last_pass
             switch = prec[-1][1] if prec else start
@@ -636,11 +636,11 @@ def write_docs(cfg: P2PConfig, b: DocBuilder, cal: pd.DataFrame) -> pd.DataFrame
                  sha256=hashlib.sha256(d["text"].encode()).hexdigest()[:16])
         rows.append(r)
     idx = pd.DataFrame(rows)
-    idx.to_parquet(root / "docs_index.parquet", index=False)
+    idx.to_parquet(root / "docs_index.parquet", index=False, coerce_timestamps="us", allow_truncated_timestamps=True)
     idx.to_csv(root / "docs_index.csv", index=False)
     rec = root / "records"
     rec.mkdir(parents=True, exist_ok=True)
-    cal.to_parquet(rec / "calibration_records.parquet", index=False)
+    cal.to_parquet(rec / "calibration_records.parquet", index=False, coerce_timestamps="us", allow_truncated_timestamps=True)
     cal.to_csv(rec / "calibration_records.csv", index=False)
     gt = Path(cfg.out_root) / "ground_truth"
     gt.mkdir(parents=True, exist_ok=True)

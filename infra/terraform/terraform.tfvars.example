@@ -23,6 +23,12 @@ create_search       = true
 search_sku          = "basic"
 search_semantic_sku = "free"
 search_index_name   = "p2p-documents"
+# Who may query the documents (the Fabric data agent uses each user's Entra identity):
+#   az ad signed-in-user show --query id -o tsv      (or a group's object id)
+search_reader_principal_ids = {
+  # me = { object_id = "00000000-0000-0000-0000-000000000000", type = "User" }
+}
+
 # --- VM ---
 create_vm       = true
 vm_size         = "Standard_B2ms"

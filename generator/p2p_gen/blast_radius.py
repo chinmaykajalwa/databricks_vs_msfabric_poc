@@ -26,7 +26,9 @@ from .config import P2PConfig
 
 def hero_blast_radius(cfg: P2PConfig, world: dict, tx: dict, hero_id: str) -> dict:
     live = pd.Timestamp(cfg.live_start)
-    drift_from = live - pd.Timedelta(days=cfg.hero_drift_days)
+    drift_start = live - pd.Timedelta(days=cfg.hero_drift_days)
+    # SOP-STR-204: suspect = every load since the LAST PASSING verification (not the unknowable onset).
+    drift_from = drift_start - pd.Timedelta(hours=cfg.hero_last_pass_hours_before_drift)
 
     loads = tx["sterilization_loads"]
     sus_loads = loads[(loads["sterilizer_id"] == hero_id) & (loads["start_ts"] >= drift_from)]
@@ -61,7 +63,9 @@ def hero_blast_radius(cfg: P2PConfig, world: dict, tx: dict, hero_id: str) -> di
     return {
         "scenario": "hero_rh_probe_drift",
         "sterilizer_id": hero_id,
-        "drift_window_start_utc": drift_from.isoformat(),
+        "suspect_window_start_utc": drift_from.isoformat(),
+        "suspect_window_rule": "SOP-STR-204: all loads since the last passing RH verification",
+        "physical_drift_start_utc": drift_start.isoformat(),
         "live_start_utc": live.isoformat(),
         "suspect_loads": sorted(sus_loads["load_id"].tolist()),
         "loads_in_chamber_at_live_start": sorted(sus_loads[sus_loads["status"] == "in_cycle"]["load_id"].tolist()),
@@ -101,7 +105,7 @@ def write_ground_truth(cfg: P2PConfig, br: dict) -> str:
 def summary_text(br: dict) -> str:
     o, a, t, d = br["on_hand_at_dcs"], br["open_orders_at_risk"], br["in_transit"], br["already_delivered"]
     return "\n".join([
-        f"  Hero steriliser {br['sterilizer_id']}, drift window from {br['drift_window_start_utc'][:16]}Z",
+        f"  Hero steriliser {br['sterilizer_id']}, suspect since last passing verification {br['suspect_window_start_utc'][:16]}Z",
         f"  {len(br['suspect_loads'])} suspect loads ({len(br['loads_in_chamber_at_live_start'])} in chamber at live start)"
         f" -> {len(br['suspect_lots'])} lots across {len(br['suspect_skus'])} SKUs; lot status {br['lots_by_status']}",
         f"  On hand at DCs: {o['cases']:,} cases (${o['inventory_value_usd']:,.0f}) {o['by_dc']}",
