@@ -13,6 +13,7 @@ Same files, same stream and the same rules as the Databricks side, so difference
 > **Ingestion from Event Hubs is configured in the Eventstream UI (section 2, step 4), not in the KQL files.**
 > The KQL files define where data lands, how it is transformed, and how it is queried. (Databricks defines
 > ingestion in code; worth noting in the comparison.)
+
 ## 1. Lakehouse (batch)
 
 1. Create a workspace on your Fabric capacity (same region as the storage account) and a Lakehouse, e.g.

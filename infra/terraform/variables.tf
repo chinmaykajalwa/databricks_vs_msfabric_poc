@@ -120,24 +120,44 @@ variable "storage_replication" {
   type        = string
   default     = "LRS"
 }
+
 # ---- Azure AI Search (documents for the agents) -----------------------------
+
 variable "create_search" {
   description = "Create the Azure AI Search service the VM indexes the documents into (Fabric data agent's unstructured source)."
   type        = bool
   default     = true
 }
+
 variable "search_sku" {
   description = "basic is enough for ~350 chunks and supports the semantic ranker. 'free' is limited to one per subscription and has no semantic ranker."
   type        = string
   default     = "basic"
 }
+
 variable "search_semantic_sku" {
   description = "Semantic ranker plan: free (limited monthly queries, fine for a PoC), standard, or \"\" to disable. Not available on the free search SKU."
   type        = string
   default     = "free"
 }
+
 variable "search_index_name" {
   description = "Index the VM creates (recreated on every setup run)."
   type        = string
   default     = "p2p-documents"
+}
+
+variable "search_reader_principal_ids" {
+  description = "Entra object IDs (users or, better, groups) allowed to query the document index. The Fabric data agent calls Azure AI Search with the END USER's identity, so every agent user needs this; without it the agent reports 403 Forbidden. Map of label => { object_id, type = User|Group|ServicePrincipal }."
+  type = map(object({
+    object_id = string
+    type      = string
+  }))
+  default = {}
+}
+
+variable "search_readers_also_service_contributor" {
+  description = "Also grant Search Service Contributor to the readers. Only if the agent still returns 403 with semantic ranking (reported by some tenants)."
+  type        = bool
+  default     = false
 }

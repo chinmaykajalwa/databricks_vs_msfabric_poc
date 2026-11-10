@@ -12,18 +12,19 @@ WHAT="${1:-all}"
 ACCT=$(conf STORAGE_ACCOUNT)
 LANDING=$(conf LANDING_CONTAINER)
 GT=$(conf GROUNDTRUTH_CONTAINER)
-PROFILE=$(conf DATA_PROFILE); PROFILE=${PROFILE:-lite}
+PROFILE=${P2P_PROFILE:-$(conf DATA_PROFILE)}; PROFILE=${PROFILE:-lite}   # P2P_PROFILE=lite90 to upload another profile
 OUT=/opt/p2p/output/$PROFILE
 BASE="https://$ACCT.blob.core.windows.net"
 [ -n "$ACCT" ] || { echo "[upload] no STORAGE_ACCOUNT configured; skipping"; exit 0; }
 export AZCOPY_AUTO_LOGIN_TYPE=MSI
 export AZCOPY_LOG_LOCATION=/var/log/azcopy
 
-sync_dir() {  # $1 local dir, $2 container, $3 remote path
+sync_dir() {  # $1 local dir, $2 container, $3 remote path, $4 "keep" = do not delete remote-only files
   [ -d "$1" ] || { echo "[upload] $1 missing; skipped"; return 0; }
   # Role assignments take minutes to propagate after the VM is created; retry instead of failing.
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if azcopy sync "$1" "$BASE/$2/$3" --recursive --delete-destination=true --log-level=ERROR >/dev/null; then
+    local del=true; [ "${4:-}" = "keep" ] && del=false
+    if azcopy sync "$1" "$BASE/$2/$3" --recursive --delete-destination=$del --log-level=ERROR >/dev/null; then
       echo "[upload] $1 -> $2/$3"; return 0
     fi
     echo "[upload] attempt $i failed (RBAC may still be propagating); retrying in 60 s" >&2
@@ -39,5 +40,6 @@ if [ "$WHAT" = "all" ] || [ "$WHAT" = "landing" ]; then
   done
 fi
 if [ "$WHAT" = "all" ] || [ "$WHAT" = "groundtruth" ]; then
-  sync_dir "$OUT/ground_truth" "$GT" "p2p/$PROFILE/ground_truth"
+  # "keep": a rebuilt VM has no earlier live_run_*.json files; they must survive in the container.
+  sync_dir "$OUT/ground_truth" "$GT" "p2p/$PROFILE/ground_truth" keep
 fi

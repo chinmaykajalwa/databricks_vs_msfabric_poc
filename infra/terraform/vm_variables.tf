@@ -64,6 +64,7 @@ variable "git_pat" {
 
 # Missing PAT / placeholder repo_url are enforced by lifecycle preconditions in vm.tf (a `check`
 # block only WARNS, which let a VM boot that could not clone).
+
 variable "generator_subdir" {
   description = "Path of the generator package inside the repo."
   type        = string

@@ -66,6 +66,29 @@ print("documents:", spark.table(f"{BRONZE}.documents_text").count())
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Documents in a managed volume (Genie Agent document source, v2)
+# MAGIC Genie's document search (Beta, Agent mode only) needs a Unity Catalog MANAGED volume. Only the four document
+# MAGIC folders are copied (65 Markdown files): `docs_index` and `calibration_records` are structured, already tables.
+# MAGIC Attach the volume in the Genie Agent (Sources -> Add) and REMOVE `documents_text` from its sources.
+
+# COMMAND ----------
+
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.agent")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.agent.documents COMMENT 'SOPs, manuals, deviation reports, supplier notices (Markdown) for the Genie Agent'")
+dst = f"/Volumes/{CATALOG}/agent/documents"
+for folder in ("sops", "manuals", "deviation_reports", "supplier_notices"):
+    try:
+        dbutils.fs.rm(f"{dst}/{folder}", True)                  # idempotent re-runs
+    except Exception:
+        pass
+    dbutils.fs.cp(f"{LANDING}documents/{folder}", f"{dst}/{folder}", recurse=True)
+n_files = len([f for d in dbutils.fs.ls(dst) for f in dbutils.fs.ls(d.path)])
+assert n_files == 65, f"expected 65 documents in the volume, found {n_files}"
+print("documents volume:", n_files, "files")
+
+# COMMAND ----------
+
 # MAGIC %md ## Telemetry history (Hive-partitioned `topic=…/date=…`)
 
 # COMMAND ----------

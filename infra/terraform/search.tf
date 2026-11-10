@@ -6,9 +6,9 @@
 # index right after uploading the batch data (infra/vm/setup.sh -> index_documents.py),
 # authenticating with its managed identity, so no admin key ever sits on the VM.
 #
-# Fabric connects with a QUERY key (read-only): terraform output -raw search_query_key
-# Keys AND Entra ID are both accepted (authentication_failure_mode enables RBAC
-# alongside keys).
+# The Fabric data agent queries the index with the END USER's Entra identity (not a key):
+# grant Search Index Data Reader to agent users via var.search_reader_principal_ids.
+# Keys AND Entra ID are both accepted (authentication_failure_mode enables RBAC alongside keys).
 # ---------------------------------------------------------------------------
 
 resource "azurerm_search_service" "docs" {
@@ -43,4 +43,21 @@ resource "azurerm_role_assignment" "vm_search_data" {
   role_definition_name = "Search Index Data Contributor"
   principal_id         = azurerm_linux_virtual_machine.generator[0].identity[0].principal_id
   principal_type       = "ServicePrincipal"
+}
+
+# End users (or groups) of the agents: data-plane read on the index.
+resource "azurerm_role_assignment" "search_readers" {
+  for_each             = var.create_search ? var.search_reader_principal_ids : {}
+  scope                = azurerm_search_service.docs[0].id
+  role_definition_name = "Search Index Data Reader"
+  principal_id         = each.value.object_id
+  principal_type       = each.value.type
+}
+
+resource "azurerm_role_assignment" "search_readers_contributor" {
+  for_each             = var.create_search && var.search_readers_also_service_contributor ? var.search_reader_principal_ids : {}
+  scope                = azurerm_search_service.docs[0].id
+  role_definition_name = "Search Service Contributor"
+  principal_id         = each.value.object_id
+  principal_type       = each.value.type
 }

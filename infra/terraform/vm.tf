@@ -127,6 +127,19 @@ resource "azurerm_linux_virtual_machine" "generator" {
     storage_account_uri = null
   }
 
+  # Preconditions FAIL the plan (a `check` block only warns, which let a missing
+  # PAT and a placeholder repo_url through to a VM that could not clone).
+  lifecycle {
+    precondition {
+      condition     = !var.repo_is_private || length(var.git_pat) > 0
+      error_message = "repo_is_private = true but git_pat is empty. PowerShell: $env:TF_VAR_git_pat = \"github_pat_...\"  (a plain $TF_VAR_git_pat is NOT an environment variable). bash: export TF_VAR_git_pat=..."
+    }
+    precondition {
+      condition     = !strcontains(var.repo_url, "<org>") && !strcontains(var.repo_url, "<repo>")
+      error_message = "repo_url is still the placeholder from terraform.tfvars.example. Set it to your GitHub repo's HTTPS URL."
+    }
+  }
+
   # custom_data is ForceNew: changing it rebuilds the VM, which is correct because
   # cloud-init only runs on first boot. For code-only changes, use bootstrap.sh instead.
   custom_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tftpl", {
@@ -152,18 +165,4 @@ resource "azurerm_linux_virtual_machine" "generator" {
     publisher_time_scale   = var.publisher_time_scale
     publisher_flush_ms     = var.publisher_flush_ms
   }))
-
-  # Preconditions FAIL the plan (a `check` block only warns, which let a missing
-  # PAT and a placeholder repo_url through to a VM that could not clone).
-  lifecycle {
-    precondition {
-      condition     = !var.repo_is_private || length(var.git_pat) > 0
-      error_message = "repo_is_private = true but git_pat is empty. PowerShell: $env:TF_VAR_git_pat = \"github_pat_...\"  (a plain $TF_VAR_git_pat is NOT an environment variable). bash: export TF_VAR_git_pat=..."
-    }
-    precondition {
-      condition     = !strcontains(var.repo_url, "<org>") && !strcontains(var.repo_url, "<repo>")
-      error_message = "repo_url is still the placeholder from terraform.tfvars.example. Set it to your GitHub repo's HTTPS URL."
-    }
-  }
-
 }

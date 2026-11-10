@@ -422,7 +422,7 @@ class Sim:
                     for b in self.BOM[sku] if b["component_kind"] == "component"}
             if self.nc_comp_lot and self.nc_comp_lot in used:
                 hold_dev = (self.nc_dev, 4)
-            elif self.rng.random() < P_WO_DEVIATION:
+            elif self.rng.random() < self.cfg.p.wo_deviation_rate:
                 fam = p["family"]
                 key = {"molded_disposables": str(self.rng.choice(["mold_short_shot", "mold_flash", "mold_black_specks", "mold_dimensional_oos"])),
                        "textiles": "txt_seam_defect", "procedure_kits": str(self.rng.choice(["kit_missing_component", "pkg_label_mixup"])),

@@ -80,13 +80,19 @@ cat /opt/p2p/COMMIT            # what is deployed
 Changing Terraform variables that feed cloud-init rebuilds the VM (custom_data is
 ForceNew), which is the correct behaviour since cloud-init only runs on first boot.
 Pin `repo_ref` to a tag or SHA for the demo, so the VM runs exactly what CI tested.
+
 ## Documents in Azure AI Search
+
 Adding search to an existing deployment changes cloud-init, so `terraform apply` **rebuilds the VM** (Event Hubs,
 storage and your platform setups are untouched; the deterministic generator recreates identical data). Afterwards:
 ```bash
 terraform output search_endpoint
-terraform output -raw search_query_key      # read-only key for the Fabric data agent
+terraform output -raw search_query_key      # read-only key for scripts; the Fabric data agent uses Entra ID instead
 ```
+**Fabric data agent access:** the agent calls the index with each user's Entra identity, so add every agent user (or
+a group) to `search_reader_principal_ids` and apply. Without it the agent answers "403 Forbidden". If 403 persists,
+set `search_readers_also_service_contributor = true` (some tenants need it with semantic ranking).
+
 Portal -> the search service -> Indexes -> `p2p-documents` should show ~350 documents (one per document section).
 Search for `steam consumption` to see MAN-STZ-EX section 4.3 come back first.
 

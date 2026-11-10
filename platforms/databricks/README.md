@@ -47,7 +47,9 @@ Import: Workspace -> Import -> the `.py` files (Databricks source format), or co
 The hero blast-radius SQL was executed (DuckDB, same SQL) against the generated files and matches
 `hero_blast_radius.json` exactly. The Spark/Kafka/Unity Catalog code has **not** been run on a Databricks
 workspace from here: expect to adjust small details (permissions, widget values) on the first run.
+
 ## Troubleshooting: stream running but `eventhub_raw` empty
+
 `starting_offsets = latest` reads only messages published after the stream's FIRST start; anything published
 earlier (e.g. rehearsals) is skipped by design, and changing the widget later has no effect because the
 checkpoint decides. Either start the publisher (rows appear within seconds), or run `99_reset_streams`, set

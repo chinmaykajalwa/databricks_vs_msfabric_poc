@@ -31,6 +31,9 @@ class Profile:
     history_days: int
     raw_tail_days: int
     machines_per_molding_line: int
+    wo_deviation_rate: float = 0.03
+    """Chance a completed history work order gets a quality deviation (and, for molding, a telemetry
+    precursor). lite90 raises it so the ML comparison has enough labelled incidents."""
 
 
 PROFILES: dict[str, Profile] = {
@@ -39,6 +42,14 @@ PROFILES: dict[str, Profile] = {
         n_dc_assets=150, n_trucks=30, routes_per_truck=2, n_skus=300,
         n_customers=400, n_suppliers=30, n_idns=12, history_days=30,
         raw_tail_days=2, machines_per_molding_line=5,
+    ),
+    # Same entities as lite, 90 days of history: enough labelled molding incidents for the ML comparison.
+    # Written to its own output/landing path, so the lite data used by the agents is untouched.
+    "lite90": Profile(
+        name="lite90", n_plants=2, n_dcs=3, n_molding_machines=20, n_sterilizers=4,
+        n_dc_assets=150, n_trucks=30, routes_per_truck=2, n_skus=300,
+        n_customers=400, n_suppliers=30, n_idns=12, history_days=90,
+        raw_tail_days=2, machines_per_molding_line=5, wo_deviation_rate=0.12,
     ),
     "baseline": Profile(
         name="baseline", n_plants=5, n_dcs=10, n_molding_machines=200,
@@ -97,6 +108,13 @@ class P2PConfig:
     None = first steriliser at the first EtO plant."""
 
     hero_drift_days: int = 10
+
+    hero_last_pass_hours_before_drift: int = 6
+    """The hero RH probe last PASSED verification this many hours before drift
+    onset. Per SOP-STR-204 every load since the last passing verification is
+    suspect, so the suspect window (ground truth) starts here, not at the
+    physical drift onset. Loads in the gap are suspect but physically fine:
+    exactly the cases MRB can release with evidence."""
     """How long before live start the probe began drifting. Every load on the
     hero steriliser in that window is in the blast radius."""
 
