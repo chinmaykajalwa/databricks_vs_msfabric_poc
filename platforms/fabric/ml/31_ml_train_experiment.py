@@ -1,10 +1,9 @@
 # Fabric notebook. Same as Databricks 31. tuning_mode: single | optuna | distributed
 # distributed = FLAML tune with use_spark=True (Fabric's built-in, preview): one trial per Spark executor by default.
-# Ray is not used here: Fabric's documented distributed tuner is FLAML. If `import optuna` fails: %pip install optuna.
-# If `import keras` fails: %pip install "tensorflow>=2.16".
+# Ray is not used here: Fabric's documented distributed tuner is FLAML. Optuna comes from the ml_env environment.
+# No TensorFlow needed (the autoencoder is scikit-learn).
 tuning_mode, n_trials, concurrency = "single", 8, 4     # parameter cell
 import os, sys, time
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 sys.path.append("/lakehouse/default/Files/code")
 import mlflow, pandas as pd, p2p_ml
 mlflow.autolog(disable=True)                            # trials are logged explicitly, identically on both platforms
@@ -20,7 +19,6 @@ def tune_flaml(kind, fit, val, dev, n, conc):
 
     def evaluate(config):
         import os
-        os.environ.setdefault("KERAS_BACKEND", "tensorflow")
         import p2p_ml as m
         return m.tuning_objective(kind, config, fit, val, dev)
     a = tune.run(evaluate, config=p2p_ml.flaml_space(kind), metric="objective", mode="max",

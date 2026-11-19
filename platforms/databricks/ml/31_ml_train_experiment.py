@@ -17,7 +17,6 @@ dbutils.widgets.text("concurrency", "4")
 CATALOG, L = dbutils.widgets.get("catalog"), dbutils.widgets.get("landing_ml_path").rstrip("/") + "/"
 MODE, N, CONC = dbutils.widgets.get("tuning_mode"), int(dbutils.widgets.get("n_trials")), int(dbutils.widgets.get("concurrency"))
 import os, time
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 import mlflow, pandas as pd, p2p_ml
 mlflow.set_registry_uri("databricks-uc")
 EXPERIMENT, MODEL = "/Shared/p2p-molding-anomaly", f"{CATALOG}.ml.molding_anomaly"
@@ -49,7 +48,6 @@ def tune_ray(kind, fit, val, dev, n, conc):
 
     def trainable(config, fit=None, val=None, dev=None):
         import os
-        os.environ.setdefault("KERAS_BACKEND", "tensorflow")
         import p2p_ml as m
         return m.tuning_objective(kind, config, fit, val, dev)
     res = tune.Tuner(tune.with_parameters(trainable, fit=fit, val=val, dev=dev), param_space=p2p_ml.ray_space(kind),

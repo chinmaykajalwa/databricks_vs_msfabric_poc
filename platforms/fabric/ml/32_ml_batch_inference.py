@@ -2,7 +2,6 @@
 # parameters score_start / score_end (mark the cell below as a parameter cell).
 score_start, score_end = "", ""   # parameters; empty = last 7 days of the feature table
 import os, sys, time
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 sys.path.append("/lakehouse/default/Files/code")
 import pandas as pd, p2p_ml
 from pyspark.sql import functions as Fn

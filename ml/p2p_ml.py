@@ -8,10 +8,8 @@ track experiments, register and serve models -- which is exactly what we compare
 Models (unsupervised; labels are used ONLY for offline evaluation against ground truth):
   baseline   robust z-score against the work order's setpoints (a model must beat this)
   iforest    scikit-learn Pipeline(StandardScaler, IsolationForest)
-  autoenc    Keras dense autoencoder. The SCORING model computes the reconstruction error
-             inside the network (standard layers only) and outputs ONE scalar per row, because
-             Fabric's real-time endpoints accept Keras but need a scalar output schema and no
-             custom code. Same model on both platforms.
+  autoenc    dense autoencoder on scikit-learn (MLPRegressor, 7-16-4-16-7); score = reconstruction error.
+             No TensorFlow: both platforms run on preinstalled libraries.
 
 Features (per machine-minute while RUNNING, relative to the active work order's mold setpoints;
 built by FEATURE_SQL on the platform's SQL engine, finished in pandas by finish_features):
@@ -130,36 +128,44 @@ def score_iforest(pipe, X: pd.DataFrame) -> np.ndarray:
     return -pipe.score_samples(X[FEATURES])          # higher = more anomalous
 
 
-def fit_autoencoder(X: pd.DataFrame, epochs: int = 15, params: dict | None = None):
-    """Returns the SCORING model: features -> one scalar (mean squared reconstruction error)."""
-    import keras
-    from keras import layers
-    keras.utils.set_random_seed(SEED)
-    n = len(FEATURES)
-    x = X[FEATURES].to_numpy("float32")
-    inp = keras.Input(shape=(n,), name="features")
-    norm = layers.Normalization(name="norm")
-    norm.adapt(x)
-    z = norm(inp)
+class SklearnAutoencoder:
+    """Dense autoencoder on scikit-learn (no TensorFlow): MLPRegressor trained to reproduce its scaled input
+    through a bottleneck (7 -> hidden -> bottleneck -> hidden -> 7). Score = mean squared reconstruction error.
+    Chosen over Keras so both platforms run on preinstalled libraries (TensorFlow would not publish in a Fabric
+    environment on runtime 1.3)."""
+
+    def __init__(self, hidden: int = 16, bottleneck: int = 4, lr: float = 1e-3, epochs: int = 6):
+        self.hidden, self.bottleneck, self.lr, self.epochs = int(hidden), int(bottleneck), float(lr), int(epochs)
+
+    def fit(self, X: pd.DataFrame):
+        import warnings
+        from sklearn.exceptions import ConvergenceWarning
+        from sklearn.neural_network import MLPRegressor
+        from sklearn.preprocessing import StandardScaler
+        x = X[FEATURES].to_numpy("float32")
+        self.scaler = StandardScaler().fit(x)
+        z = self.scaler.transform(x)
+        self.mlp = MLPRegressor(hidden_layer_sizes=(self.hidden, self.bottleneck, self.hidden), activation="relu",
+                                solver="adam", learning_rate_init=self.lr, batch_size=1024, max_iter=self.epochs,
+                                shuffle=True, random_state=SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)     # a fixed epoch budget is intended
+            self.mlp.fit(z, z)
+        return self
+
+    def score(self, X: pd.DataFrame) -> np.ndarray:
+        z = self.scaler.transform(X[FEATURES].to_numpy("float32"))
+        return ((self.mlp.predict(z) - z) ** 2).mean(axis=1)
+
+
+def fit_autoencoder(X: pd.DataFrame, epochs: int = 6, params: dict | None = None):
     p = params or {}
-    hidden, neck = int(p.get("hidden", 16)), int(p.get("bottleneck", 4))
-    epochs = int(p.get("epochs", epochs))
-    h = layers.Dense(hidden, activation="relu")(z)
-    h = layers.Dense(neck, activation="relu", name="bottleneck")(h)
-    h = layers.Dense(hidden, activation="relu")(h)
-    rec = layers.Dense(n, name="reconstruction")(h)
-    trainer = keras.Model(inp, rec)
-    trainer.compile(optimizer=keras.optimizers.Adam(float(p.get("lr", 1e-3))), loss="mse")
-    trainer.fit(x, np.asarray(norm(x)), epochs=epochs, batch_size=1024, verbose=0, validation_split=0.1, shuffle=True)
-    diff = layers.Subtract()([z, rec])
-    sq = layers.Multiply()([diff, diff])
-    score = layers.Dense(1, use_bias=False, trainable=False, name="anomaly_score",
-                         kernel_initializer=keras.initializers.Constant(1.0 / n))(sq)
-    return keras.Model(inp, score, name="molding_autoencoder_scorer")
+    return SklearnAutoencoder(p.get("hidden", 16), p.get("bottleneck", 4), p.get("lr", 1e-3),
+                              p.get("epochs", epochs)).fit(X)
 
 
 def score_autoencoder(model, X: pd.DataFrame) -> np.ndarray:
-    return model.predict(X[FEATURES].to_numpy("float32"), batch_size=8192, verbose=0).ravel()
+    return model.score(X)
 
 
 def train_all(features: pd.DataFrame, train_days: int = 45, epochs: int = 15) -> dict:
@@ -205,42 +211,6 @@ def alerts(scores: pd.DataFrame, train_cut, window: str = "15min", quantile: flo
 # ---------------------------------------------------------------------------
 # MLflow (same calls on both platforms; registry names differ)
 # ---------------------------------------------------------------------------
-def log_and_register(models: dict, features: pd.DataFrame, names: dict, experiment: str) -> dict:
-    """names = {"iforest": <registry name>, "autoenc": <registry name>}. Returns registered versions."""
-    import mlflow
-    from mlflow.models import infer_signature
-    mlflow.set_experiment(experiment)
-    sample = features[FEATURES].head(200).astype("float64")
-    versions = {}
-    with mlflow.start_run(run_name="molding_anomaly") as run:
-        mlflow.log_params({"features": ",".join(FEATURES), "threshold_quantile": THRESHOLD_QUANTILE,
-                           "train_cut": str(models["train_cut"]), "n_train": models["n_train"]})
-        mlflow.log_metrics({f"threshold_{k}": v for k, v in models["thresholds"].items()})
-        mlflow.log_dict(json.loads(models["baseline"].to_json()), "baseline/params.json")
-        # column-based in AND out (named output column): the shape Fabric's preview endpoints document
-        sig_if = infer_signature(sample, pd.DataFrame({"prediction": models["iforest"].predict(sample)}))
-        # cloudpickle pinned: MLflow 3.x defaults to skops (extra package); older platform runtimes default to
-        # cloudpickle. Pinning makes the saved model identical on both platforms whatever the runtime version.
-        mlflow.sklearn.log_model(models["iforest"], "iforest", signature=sig_if, input_example=sample.head(5),
-                                 serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE)
-        # Keras flavour REQUIRES a tensor signature (float32 array [n, 7] -> [n, 1]). Fabric's preview real-time
-        # endpoints are documented to need scalar/column schemas: whether they serve this model is a test on Fabric.
-        x = sample.to_numpy("float32")
-        sig_ae = infer_signature(x, score_autoencoder(models["autoenc"], sample).reshape(-1, 1).astype("float32"))
-        try:
-            import mlflow.keras as mk                          # Keras 3 flavour (MLflow >= 2.12)
-        except ImportError:
-            mk = None
-        if mk is not None:
-            mk.log_model(models["autoenc"], "autoenc", signature=sig_ae)
-        else:                                                  # older runtimes: TensorFlow flavour
-            mlflow.tensorflow.log_model(models["autoenc"], "autoenc", signature=sig_ae)
-        for key in ("iforest", "autoenc"):
-            mv = mlflow.register_model(f"runs:/{run.info.run_id}/{key}", names[key])
-            versions[key] = mv.version
-    return versions
-
-
 # ---------------------------------------------------------------------------
 # Offline evaluation against ground truth (run on your laptop, never in the platforms)
 # ---------------------------------------------------------------------------
@@ -311,12 +281,9 @@ class AnomalyScorer(_PyfuncBase):
     def load_context(self, context):
         meta = json.load(open(context.artifacts["meta"]))
         self.kind, self.features = meta["kind"], meta["features"]
-        if self.kind == "iforest":
+        if self.kind in ("iforest", "autoenc"):
             import joblib
             self.model = joblib.load(context.artifacts["model"])
-        elif self.kind == "autoenc":
-            import keras
-            self.model = keras.saving.load_model(context.artifacts["model"])
         else:
             p = json.load(open(context.artifacts["model"]))
             self.med, self.mad = pd.Series(p["median"]), pd.Series(p["mad"])
@@ -326,7 +293,7 @@ class AnomalyScorer(_PyfuncBase):
         if self.kind == "iforest":
             s = -self.model.score_samples(X)
         elif self.kind == "autoenc":
-            s = self.model.predict(X.to_numpy("float32"), batch_size=8192, verbose=0).ravel()
+            s = self.model.score(X)
         else:
             s = ((X - self.med) / self.mad).abs().max(axis=1).to_numpy()
         return pd.DataFrame({"anomaly_score": np.asarray(s, dtype="float64")})
@@ -415,10 +382,8 @@ def log_candidate(kind: str, model, train: pd.DataFrame, valid_metrics: dict, th
     tmp = tempfile.mkdtemp()
     meta = {"kind": kind, "features": FEATURES, "alert_threshold": threshold, "alert_window": ALERT_WINDOW}
     json.dump(meta, open(f"{tmp}/meta.json", "w"))
-    if kind == "iforest":
+    if kind in ("iforest", "autoenc"):
         path = f"{tmp}/model.joblib"; joblib.dump(model, path)
-    elif kind == "autoenc":
-        path = f"{tmp}/model.keras"; model.save(path)
     else:
         path = f"{tmp}/model.json"; open(path, "w").write(model.to_json())
     X = train[FEATURES].head(200).astype("float32")
@@ -431,7 +396,7 @@ def log_candidate(kind: str, model, train: pd.DataFrame, valid_metrics: dict, th
         mlflow.log_params({"kind": kind, "features": ",".join(FEATURES), "alert_window": ALERT_WINDOW,
                            "alert_quantile": ALERT_QUANTILE, "train_cut": str(train_cut), "n_train": len(train)})
         mlflow.log_metric("alert_threshold", threshold)
-        mlflow.log_metrics({f"val_{k}": float(v) for k, v in valid_metrics.items()})
+        mlflow.log_metrics({f"test_{k}": float(v) for k, v in valid_metrics.items()})
         kwargs = dict(python_model=AnomalyScorer(), artifacts={"model": path, "meta": f"{tmp}/meta.json"},
                       signature=sig, input_example=X.head(3))
         try:
