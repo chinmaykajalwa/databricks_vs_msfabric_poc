@@ -6,7 +6,7 @@ Data: the `lite90` profile (`landing/p2p/lite90/`, read directly as files; never
 | Notebook (both platforms) | Stage | Runs as | Writes |
 |---|---|---|---|
 | `30_ml_features` | Feature table, built once; training and inference both read it | job | `ml.molding_features` / `ml_molding_features` |
-| `31_ml_train_experiment` | One MLflow run per candidate (baseline, Isolation Forest, Keras autoencoder); validation against the quality system's molding deviations; champion registered with alias `@champion` | manual / retraining trigger | MLflow runs, registered model `molding_anomaly`, score export for the offline check |
+| `31_ml_train_experiment` | One MLflow run per candidate (baseline, Isolation Forest, scikit-learn autoencoder); validation against the quality system's molding deviations; champion registered with alias `@champion` | manual / retraining trigger | MLflow runs, registered model `molding_anomaly`, score export for the offline check |
 | `32_ml_batch_inference` | Loads `@champion` from the registry, scores a window, applies the champion's logged threshold | scheduled job (`score_start` / `score_end`) | `molding_scores`, `molding_alerts` |
 | `33_ml_stream_inference` | Live: 1-minute aggregates (watermark 2 min) -> shared `stream_microbatch` -> scores and alerts, with latency | continuous | `molding_stream_scores`, `molding_stream_alerts` |
 
@@ -43,6 +43,9 @@ fit all ran; Ray was not run locally (test it on Databricks). Tuning lifted Isol
 
 - One MLflow run per candidate; champion rule fixed before running: at most 0.1 false alarms per machine-day, then
   highest recall, then longest lead time. Only the champion is registered (alias; a version tag where aliases are unsupported).
+- The autoencoder is scikit-learn's `MLPRegressor` (7-16-4-16-7) trained to reproduce its input, not Keras: TensorFlow would not
+  publish in a Fabric environment on runtime 1.3, while Databricks Runtime ML ships it preinstalled (a comparison finding).
+  Both platforms now run on preinstalled libraries; the Fabric environment only adds Optuna.
 - Every candidate is served through one pyfunc interface (`AnomalyScorer`: features in, `anomaly_score` out) that packages
   `p2p_ml.py` with the model, so inference loads "the champion" without knowing its type. The alert threshold is logged
   with the run and read back at inference: model and threshold are versioned together.
@@ -50,13 +53,13 @@ fit all ran; Ray was not run locally (test it on Databricks). Tuning lifted Isol
   offline for the independent check (`evaluate_platform_scores.py`).
 - Features in SQL (pandas ran out of memory on the 21M-row history); alerts need 15 minutes of persistence.
 
-## Local test results (lite90; Keras on JAX locally, TensorFlow on the platforms)
+## Local test results (lite90, scikit-learn autoencoder)
 
 | Candidate | Recall (11 deviations) | Median warning | False alarms per machine-day |
 |---|---|---|---|
-| Autoencoder (champion) | 11/11 | ~6.7 h | 0.02 |
+| Autoencoder (champion) | 11/11 | ~4.6 h | 0.076 |
 | Baseline | 11/11 | ~4.1 h | 0 |
 | Isolation Forest | 4/11 | ~5.0 h | 0 |
 
 Streaming path vs batch path on the same 8 hours (7,933 machine-minutes): score correlation 0.9999, median difference 0:
-no training/serving skew. Exact figures vary slightly with training epochs and the runtime's Keras backend.
+no training/serving skew. (Streaming check run with the earlier Keras autoencoder; the shared streaming code is unchanged.)

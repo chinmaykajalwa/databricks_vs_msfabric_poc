@@ -13,7 +13,6 @@ dbutils.widgets.text("catalog", "p2p_poc")
 dbutils.widgets.text("landing_ml_path", "abfss://landing@p2ppocstxbohi5.dfs.core.windows.net/p2p/lite90/")
 CATALOG, L = dbutils.widgets.get("catalog"), dbutils.widgets.get("landing_ml_path").rstrip("/") + "/"
 import os
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 import mlflow, pandas as pd, p2p_ml
 from pyspark.sql import functions as Fn
 mlflow.set_registry_uri("databricks-uc")

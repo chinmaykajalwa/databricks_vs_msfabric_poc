@@ -2,7 +2,6 @@
 # group `fabric-ml` (so it does not compete with the Eventstream on `fabric`; add it via terraform consumer_groups).
 # Secret: store the fabric-listen connection string in Azure Key Vault and read it with notebookutils (below).
 import os, sys
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 sys.path.append("/lakehouse/default/Files/code")
 import pandas as pd, p2p_ml
 from pyspark.sql import functions as Fn

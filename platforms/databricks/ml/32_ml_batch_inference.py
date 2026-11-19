@@ -12,7 +12,6 @@ dbutils.widgets.text("score_start", "")      # empty = last 7 days of the featur
 dbutils.widgets.text("score_end", "")
 CATALOG = dbutils.widgets.get("catalog")
 import os, time
-os.environ.setdefault("KERAS_BACKEND", "tensorflow")
 import mlflow, pandas as pd, p2p_ml
 from pyspark.sql import functions as Fn
 mlflow.set_registry_uri("databricks-uc")
